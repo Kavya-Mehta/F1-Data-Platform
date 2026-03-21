@@ -1,0 +1,140 @@
+version: 2
+
+models:
+  - name: dim_drivers
+    description: "One row per driver with career stats and current team"
+    columns:
+      - name: driver_abbr
+        tests:
+          - not_null
+          - unique
+      - name: driver_name
+        tests:
+          - not_null
+      - name: current_team
+        tests:
+          - not_null
+
+  - name: dim_teams
+    description: "One row per team with season constructor stats"
+    columns:
+      - name: team_name
+        tests:
+          - not_null
+          - unique
+      - name: reliability_rate
+        tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              min_value: 0
+              max_value: 1
+
+  - name: dim_circuits
+    description: "One row per circuit with race metadata and DNF rate"
+    columns:
+      - name: circuit_name
+        tests:
+          - not_null
+      - name: country
+        tests:
+          - not_null
+      - name: circuit_dnf_rate
+        tests:
+          - dbt_utils.accepted_range:
+              min_value: 0
+              max_value: 1
+
+  - name: fct_race_results
+    description: "Main fact table — one row per driver per race with all 14 engineered features"
+    columns:
+      - name: driver_abbr
+        tests:
+          - not_null
+      - name: round_number
+        tests:
+          - not_null
+      - name: season
+        tests:
+          - not_null
+      - name: finish_position
+        tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              min_value: 1
+              max_value: 30
+      - name: points
+        tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              min_value: 0
+              max_value: 25
+
+  - name: fct_championship_standings
+    description: "Cumulative championship standings per driver per round"
+    columns:
+      - name: driver_abbr
+        tests:
+          - not_null
+      - name: round_number
+        tests:
+          - not_null
+      - name: championship_position
+        tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              min_value: 1
+              max_value: 30
+      - name: total_points
+        tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              min_value: 0
+              max_value: 1000
+
+  - name: fct_driver_performance
+    description: "Season-level aggregate performance metrics per driver"
+    columns:
+      - name: driver_abbr
+        tests:
+          - not_null
+      - name: wins
+        tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              min_value: 0
+              max_value: 24
+      - name: podiums
+        tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              min_value: 0
+              max_value: 72
+      - name: avg_finish
+        tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              min_value: 1
+              max_value: 30
+
+  - name: fct_race_summary
+    description: "Race-level summary including winner, DNF count, and pace metrics"
+    columns:
+      - name: round_number
+        tests:
+          - not_null
+          - unique
+      - name: winner
+        tests:
+          - not_null
+      - name: total_starters
+        tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              min_value: 1
+              max_value: 30
+      - name: total_dnfs
+        tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              min_value: 0
+              max_value: 30
