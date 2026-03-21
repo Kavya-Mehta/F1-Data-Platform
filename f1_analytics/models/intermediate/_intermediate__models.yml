@@ -1,0 +1,71 @@
+version: 2
+
+models:
+  - name: int_driver_cumulative_stats
+    description: "Cumulative driver statistics with leakage-preventing window functions. All features use data from races 1 to N-1 only."
+    columns:
+      - name: driver_abbr
+        description: "Three letter driver abbreviation"
+        tests:
+          - not_null
+      - name: round_number
+        description: "Race round number"
+        tests:
+          - not_null
+      - name: prev_cumulative_points
+        description: "Driver championship points accumulated before this race"
+        tests:
+          - not_null
+      - name: dnf_rate
+        description: "Historical DNF rate, must be between 0 and 1"
+        tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              min_value: 0
+              max_value: 1
+
+  - name: int_lap_analysis
+    description: "Lap time analysis per driver per race, outliers removed using 1.25x median filter"
+    columns:
+      - name: driver_abbr
+        tests:
+          - not_null
+      - name: round_number
+        tests:
+          - not_null
+      - name: mean_lap_time
+        description: "Average clean lap time in seconds after outlier removal"
+        tests:
+          - not_null
+
+  - name: int_driver_race_features
+    description: "All 14 engineered features assembled for each driver per race"
+    columns:
+      - name: driver_abbr
+        tests:
+          - not_null
+      - name: round_number
+        tests:
+          - not_null
+      - name: grid_log
+        description: "Log-transformed grid position"
+        tests:
+          - not_null
+      - name: top3_rate
+        tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              min_value: 0
+              max_value: 1
+      - name: dnf_rate
+        tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              min_value: 0
+              max_value: 1
+      - name: team_reliability
+        tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              min_value: 0
+              max_value: 1
