@@ -1,0 +1,30 @@
+version: 2
+
+sources:
+  - name: raw
+    schema: raw
+    description: "Raw F1 data loaded from FastF1 API"
+    tables:
+      - name: races
+        description: "One row per race in the season"
+        columns:
+          - name: season
+            tests: [not_null]
+          - name: round_number
+            tests: [not_null, unique]
+
+      - name: results
+        description: "One row per driver per race"
+        columns:
+          - name: driver_abbr
+            tests: [not_null]
+          - name: round_number
+            tests: [not_null]
+
+      - name: lap_times
+        description: "One row per driver per lap"
+        columns:
+          - name: driver_abbr
+            tests: [not_null]
+          - name: lap_number
+            tests: [not_null]
