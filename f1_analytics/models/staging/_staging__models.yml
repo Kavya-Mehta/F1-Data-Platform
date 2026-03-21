@@ -1,0 +1,34 @@
+version: 2
+
+models:
+  - name: stg_races
+    description: "Cleaned race session data"
+    columns:
+      - name: round_number
+        tests:
+          - not_null
+          - unique
+
+  - name: stg_results
+    description: "Cleaned race results with DNF flags and grid transforms"
+    columns:
+      - name: driver_abbr
+        tests:
+          - not_null
+      - name: round_number
+        tests:
+          - not_null
+      - name: grid_position
+        tests:
+          - not_null
+
+  - name: stg_lap_times
+    description: "Cleaned lap times with outlier detection"
+    columns:
+      - name: driver_abbr
+        tests:
+          - not_null
+      - name: lap_time_seconds
+        tests:
+          - not_null
+
