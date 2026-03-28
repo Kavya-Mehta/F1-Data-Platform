@@ -19,7 +19,7 @@ datasources:
     execution_engine:
       class_name: SqlAlchemyExecutionEngine
       module_name: great_expectations.execution_engine
-      connection_string: postgresql+psycopg2://f1admin:f1analytics2025@localhost:5433/f1_warehouse
+      connection_string: postgresql+psycopg2://f1admin:f1analytics2025@postgres:5432/f1_warehouse
     data_connectors:
       default_runtime_data_connector_name:
         class_name: RuntimeDataConnector

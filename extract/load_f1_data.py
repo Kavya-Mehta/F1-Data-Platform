@@ -12,7 +12,7 @@ SEASON = int(os.getenv("F1_SEASON", 2025))
 CACHE_DIR = os.getenv("F1_CACHE_DIR", "./f1_cache")
 
 DB_CONFIG = {
-    "host": "localhost",
+    "host": os.getenv("POSTGRES_HOST", "localhost"),
     "port": os.getenv("POSTGRES_PORT", 5432),
     "dbname": os.getenv("POSTGRES_DB", "f1_warehouse"),
     "user": os.getenv("POSTGRES_USER", "f1admin"),

@@ -22,12 +22,12 @@ with DAG(
 
     extract_f1_data = BashOperator(
         task_id='extract_f1_data',
-        bash_command='cd /opt/airflow/project && pip install -r extract/requirements.txt -q && python extract/load_f1_data.py',
+        bash_command='cd /opt/airflow/project && pip install fastf1==3.3.9 psycopg2-binary pandas python-dotenv -q && python extract/load_f1_data.py',
     )
-
+    
     dbt_run = BashOperator(
         task_id='dbt_run',
-        bash_command='cd /opt/airflow/project/f1_analytics && pip install dbt-postgres==1.7.13 -q && dbt run --profiles-dir .',
+        bash_command='cd /opt/airflow/project/f1_analytics && rm -rf dbt_packages && dbt deps --profiles-dir . && dbt run --profiles-dir .',
     )
 
     dbt_test = BashOperator(
