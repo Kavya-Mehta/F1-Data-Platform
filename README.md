@@ -8,8 +8,8 @@ An end-to-end data engineering platform that ingests Formula 1 race data, transf
 | -------------- | ---------------------- |
 | Extraction     | Python, FastF1 API     |
 | Storage        | PostgreSQL → Snowflake |
-| Transformation | dbt Core               |
-| Orchestration  | Apache Airflow         |
+| Transformation | dbt Core 1.5.9         |
+| Orchestration  | Apache Airflow 2.8.1   |
 | Streaming      | Apache Kafka           |
 | Data Quality   | Great Expectations     |
 | Visualization  | Power BI               |
@@ -21,6 +21,7 @@ An end-to-end data engineering platform that ingests Formula 1 race data, transf
 f1-data-platform/
 ├── airflow/
 │   ├── dags/
+│   │   └── f1_pipeline.py
 │   ├── logs/
 │   └── plugins/
 ├── extract/
@@ -40,6 +41,12 @@ f1-data-platform/
 │   │       └── fct_race_summary.sql
 │   ├── snapshots/
 │   └── tests/
+├── gx/
+│   ├── great_expectations.yml
+│   ├── expectations/
+│   ├── checkpoints/
+│   └── run_checkpoint.py
+├── Dockerfile
 ├── docker-compose.yaml
 ├── init_db.sql
 └── .env
@@ -65,8 +72,10 @@ FastF1 API → Python Extraction → PostgreSQL (Bronze)
                                       ↓
                          Apache Airflow DAG Orchestration
                          extract → dbt run → dbt test
+                         → dbt snapshot → great_expectations_validate
                                       ↓
                      Great Expectations Data Quality Monitoring
+                     48/48 checks passing on raw layer
                                       ↓
                      Kafka Streaming → Snowflake (Phase 3)
                                       ↓
@@ -124,13 +133,14 @@ All features use leakage-preventing window functions — Race N uses only data f
 The entire pipeline is automated as an Airflow DAG running on a weekly schedule:
 
 ```
-extract_f1_data → dbt_run → dbt_test → great_expectations_validation
+extract_f1_data → dbt_run → dbt_test → dbt_snapshot → great_expectations_validate
 ```
 
 - **extract_f1_data** — runs the FastF1 Python extraction script and loads raw data into PostgreSQL
-- **dbt_run** — executes all dbt models through Bronze → Silver → Gold layers
+- **dbt_run** — executes all dbt models through Bronze → Silver → Gold layers (13 models)
 - **dbt_test** — runs all 71 data quality tests across every layer
-- **great_expectations_validation** — statistical data quality checks on row counts, null rates, and value distributions
+- **dbt_snapshot** — runs SCD Type 2 snapshot to track mid-season driver-team transfers
+- **great_expectations_validate** — runs 48 statistical data quality checks on row counts, null rates, and value distributions
 
 Airflow UI available at `http://localhost:8080` after running `docker-compose up -d`.
 
@@ -139,8 +149,8 @@ Airflow UI available at `http://localhost:8080` after running `docker-compose up
 - 71 dbt tests passing across all layers
 - Tests between every layer — not_null, unique, accepted_range
 - Custom SQL tests for orphan laps and duplicate finish positions
-- SCD Type 2 snapshots tracking driver-team changes (captured Lawson and Tsunoda mid-season transfers in 2025)
-- Great Expectations suites monitoring raw layer statistics
+- SCD Type 2 snapshot tracking driver-team changes (captured Lawson and Tsunoda mid-season transfers in 2025)
+- 48/48 Great Expectations checks passing on the raw results layer covering row counts, null rates, and value distributions
 
 ## Dataset
 
@@ -150,15 +160,14 @@ Airflow UI available at `http://localhost:8080` after running `docker-compose up
 | raw.results   | 479    |
 | raw.lap_times | 26,692 |
 
-2025 Championship Result: NOR 407pts, PIA 395pts, VER 394pts
+2025 Championship Standings: NOR 407pts (P1), PIA 395pts (P2), VER 394pts (P3)
 
 ## Setup
 
 ### Prerequisites
 
-- Docker Desktop
+- Docker Desktop (with WSL 2 on Windows)
 - Python 3.10+
-- dbt-postgres 1.7.13
 
 ### Run Locally
 
@@ -169,31 +178,41 @@ cd F1-Data-Platform
 
 # Create and activate virtual environment
 python -m venv venv
-venv\Scripts\activate
+venv\Scripts\activate  # Windows
+source venv/bin/activate  # Mac/Linux
 
-# Install Python dependencies
-pip install -r extract/requirements.txt
-
-# Start all services (PostgreSQL + Airflow)
+# Build the custom Docker image and start all services
+docker-compose build --no-cache
 docker-compose up -d
 
-# Load 2025 F1 data
-python extract/load_f1_data.py
-
-# Run dbt transformations
-cd f1_analytics
-dbt deps
-dbt run
-dbt test
+# Verify all containers are running
+docker ps
 
 # Access Airflow UI
 # Open http://localhost:8080
 # Username: admin
 # Password: admin123
+
+# Trigger the DAG manually from the UI or let it run on its weekly schedule
 ```
+
+### Services
+
+| Service    | URL                   | Credentials             |
+| ---------- | --------------------- | ----------------------- |
+| Airflow UI | http://localhost:8080 | admin/admin123          |
+| PostgreSQL | localhost:5433        | f1admin/f1analytics2025 |
+
+## Key Engineering Decisions
+
+- **Custom Docker image** — built on `apache/airflow:2.8.1-python3.10` to support fastf1==3.4.4 (requires Python 3.10+)
+- **dbt 1.5.9** — downgraded from 1.7.13 to resolve a KeyError in the dbt-postgres macro manifest inside Docker
+- **Docker networking** — all services reference PostgreSQL by service name `postgres:5432` internally; port 5433 is only used for local host access
+- **Leakage-preventing features** — all 14 engineered features use `ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING` to prevent data leakage
+- **SCD Type 2** — snap_driver_teams snapshot captures real mid-season team changes
 
 ## Phases
 
-- **Phase 1 (Complete):** Batch ELT pipeline — FastF1 → PostgreSQL → dbt Medallion layers with star schema, 14 engineered features, SCD Type 2, 71 tests passing
-- **Phase 2 (In Progress):** Airflow orchestration + Great Expectations data quality monitoring
-- **Phase 3 (Planned):** Kafka streaming + Snowflake + Power BI dashboards
+- **Phase 1 (Complete ✓):** Batch ELT pipeline — FastF1 → PostgreSQL → dbt Medallion layers with star schema, 14 engineered features, SCD Type 2, 71 tests passing, GitHub Actions CI
+- **Phase 2 (Complete ✓):** Airflow orchestration with 5-task DAG, Great Expectations data quality monitoring (48/48 checks), fully containerized with custom Docker image
+- **Phase 3 (Planned):** Kafka streaming + Snowflake migration + 4 Power BI dashboards
