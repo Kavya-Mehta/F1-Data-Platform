@@ -13,9 +13,9 @@ f1_analytics:
 
     snowflake:
       type: snowflake
-      account: "{{ env_var('SNOWFLAKE_ACCOUNT', 'JOTXHEH-SP06076') }}"
-      user: "{{ env_var('SNOWFLAKE_USER', 'KAVYAPMEHTA') }}"
-      password: "{{ env_var('SNOWFLAKE_PASSWORD', 'Kavyamehta1904') }}"
+      account: "{{ env_var('SNOWFLAKE_ACCOUNT') }}"
+      user: "{{ env_var('SNOWFLAKE_USER') }}"
+      password: "{{ env_var('SNOWFLAKE_PASSWORD') }}"
       role: ACCOUNTADMIN
       database: F1_DW
       warehouse: F1_WH
