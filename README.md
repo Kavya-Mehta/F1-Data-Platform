@@ -4,16 +4,16 @@ An end-to-end data engineering platform that ingests Formula 1 race data, transf
 
 ## Tech Stack
 
-| Layer          | Technology             |
-| -------------- | ---------------------- |
-| Extraction     | Python, FastF1 API     |
-| Storage        | PostgreSQL → Snowflake |
-| Transformation | dbt Core 1.5.9         |
-| Orchestration  | Apache Airflow 2.8.1   |
-| Streaming      | Apache Kafka           |
-| Data Quality   | Great Expectations     |
-| Visualization  | Power BI               |
-| Infrastructure | Docker, Docker Compose |
+| Layer          | Technology                            |
+| -------------- | ------------------------------------- |
+| Extraction     | Python, FastF1 API                    |
+| Storage        | PostgreSQL → Snowflake                |
+| Transformation | dbt Core 1.6.0 (Postgres + Snowflake) |
+| Orchestration  | Apache Airflow 2.8.1                  |
+| Streaming      | Apache Kafka + Zookeeper              |
+| Data Quality   | Great Expectations                    |
+| Visualization  | Power BI                              |
+| Infrastructure | Docker, Docker Compose                |
 
 ## Project Structure
 
@@ -26,8 +26,15 @@ f1-data-platform/
 │   └── plugins/
 ├── extract/
 │   ├── load_f1_data.py
+│   ├── load_snowflake.py
 │   └── requirements.txt
+├── kafka/
+│   ├── producer.py
+│   └── consumer.py
 ├── f1_analytics/
+│   ├── profiles.yml
+│   ├── dbt_project.yml
+│   ├── packages.yml
 │   ├── models/
 │   │   ├── staging/
 │   │   ├── intermediate/
@@ -77,18 +84,22 @@ FastF1 API → Python Extraction → PostgreSQL (Bronze)
                      Great Expectations Data Quality Monitoring
                      48/48 checks passing on raw layer
                                       ↓
-                     Kafka Streaming → Snowflake (Phase 3)
+                Kafka Producer → Kafka Topic (f1_lap_events)
+                         → Kafka Consumer → Snowflake RAW
+                                      ↓
+                  dbt Snowflake target → Snowflake GOLD layer
+                  13/13 models passing in Snowflake
                                       ↓
                           Power BI Dashboards (Phase 3)
 ```
 
 ## Medallion Architecture
 
-**Bronze (Raw):** Raw F1 race data loaded from FastF1 API into PostgreSQL — races, results, and lap times across the full 2025 season.
+**Bronze (Raw):** Raw F1 race data loaded from FastF1 API into PostgreSQL — races, results, and lap times across the full 2025 season. Same raw tables replicated into Snowflake for cloud transformation.
 
 **Silver (Staging):** Cleaned and typed data with DNF flags, outlier lap removal using a 1.25x median filter, log-transformed grid positions, and points calculated via CASE WHEN logic.
 
-**Gold (Marts):** Star schema dimensional model with 3 dimension tables and 4 fact tables served to Power BI dashboards.
+**Gold (Marts):** Star schema dimensional model with 3 dimension tables and 4 fact tables. Runs on both PostgreSQL (via Airflow) and Snowflake (cloud target for Power BI).
 
 ## Star Schema
 
@@ -128,16 +139,28 @@ All features use leakage-preventing window functions — Race N uses only data f
 | Team Points          | Cumulative constructor points              |
 | Points Momentum      | Rolling 6-race average points              |
 
+## Kafka Streaming
+
+A simulated real-time streaming layer runs alongside the batch pipeline:
+
+- **Producer** (`kafka/producer.py`) — reads lap times from PostgreSQL and streams them one event at a time to the `f1_lap_events` Kafka topic, simulating live F1 telemetry
+- **Consumer** (`kafka/consumer.py`) — reads from the Kafka topic and writes each event into Snowflake's `RAW.kafka_lap_events` table in real time
+- **Topic:** `f1_lap_events`
+- **Events streamed:** 500 lap events per run (configurable)
+- **Data verified:** 1,159+ rows confirmed in Snowflake after streaming
+
+This demonstrates a hybrid architecture — batch ELT via Airflow/dbt running in parallel with real-time streaming via Kafka.
+
 ## Airflow Orchestration
 
-The entire pipeline is automated as an Airflow DAG running on a weekly schedule:
+The entire batch pipeline is automated as an Airflow DAG running on a weekly schedule:
 
 ```
 extract_f1_data → dbt_run → dbt_test → dbt_snapshot → great_expectations_validate
 ```
 
 - **extract_f1_data** — runs the FastF1 Python extraction script and loads raw data into PostgreSQL
-- **dbt_run** — executes all dbt models through Bronze → Silver → Gold layers (13 models)
+- **dbt_run** — executes all 13 dbt models through Bronze → Silver → Gold layers
 - **dbt_test** — runs all 71 data quality tests across every layer
 - **dbt_snapshot** — runs SCD Type 2 snapshot to track mid-season driver-team transfers
 - **great_expectations_validate** — runs 48 statistical data quality checks on row counts, null rates, and value distributions
@@ -150,7 +173,7 @@ Airflow UI available at `http://localhost:8080` after running `docker-compose up
 - Tests between every layer — not_null, unique, accepted_range
 - Custom SQL tests for orphan laps and duplicate finish positions
 - SCD Type 2 snapshot tracking driver-team changes (captured Lawson and Tsunoda mid-season transfers in 2025)
-- 48/48 Great Expectations checks passing on the raw results layer covering row counts, null rates, and value distributions
+- 48/48 Great Expectations checks passing on the raw results layer
 
 ## Dataset
 
@@ -168,51 +191,143 @@ Airflow UI available at `http://localhost:8080` after running `docker-compose up
 
 - Docker Desktop (with WSL 2 on Windows)
 - Python 3.10+
+- Snowflake account (free trial works)
+- Power BI Desktop
 
-### Run Locally
+### 1. Clone the Repository
 
 ```bash
-# Clone the repository
 git clone https://github.com/Kavya-Mehta/F1-Data-Platform.git
 cd F1-Data-Platform
+```
 
-# Create and activate virtual environment
+### 2. Create Virtual Environment
+
+```bash
 python -m venv venv
-venv\Scripts\activate  # Windows
-source venv/bin/activate  # Mac/Linux
+venv\Scripts\activate        # Windows
+source venv/bin/activate     # Mac/Linux
+```
 
-# Build the custom Docker image and start all services
+### 3. Install Python Dependencies
+
+```bash
+pip install -r extract/requirements.txt
+pip install kafka-python snowflake-connector-python dbt-snowflake==1.6.0
+```
+
+### 4. Configure Environment Variables
+
+Create a `.env` file in the root directory with the following values:
+
+```
+# PostgreSQL
+POSTGRES_USER=your_postgres_user
+POSTGRES_PASSWORD=your_postgres_password
+POSTGRES_DB=your_database_name
+POSTGRES_PORT=5433
+
+# Airflow
+AIRFLOW_ADMIN_USER=admin
+AIRFLOW_ADMIN_PASSWORD=your_airflow_password
+AIRFLOW_ADMIN_EMAIL=your@email.com
+AIRFLOW__CORE__FERNET_KEY=your_fernet_key
+
+# Snowflake
+SNOWFLAKE_ACCOUNT=your-account-identifier
+SNOWFLAKE_USER=your-snowflake-username
+SNOWFLAKE_PASSWORD=your-snowflake-password
+SNOWFLAKE_DATABASE=F1_DW
+SNOWFLAKE_SCHEMA=RAW
+SNOWFLAKE_WAREHOUSE=F1_WH
+```
+
+To find your Snowflake account identifier: log into Snowflake → click your name bottom left → Admin → Account → copy the Account Identifier (format: `ORGNAME-ACCOUNTNAME`).
+
+### 5. Set Up Snowflake
+
+In a Snowflake worksheet, run:
+
+```sql
+CREATE DATABASE IF NOT EXISTS F1_DW;
+USE DATABASE F1_DW;
+CREATE SCHEMA IF NOT EXISTS RAW;
+CREATE SCHEMA IF NOT EXISTS GOLD;
+CREATE WAREHOUSE IF NOT EXISTS F1_WH
+  WITH WAREHOUSE_SIZE = 'X-SMALL'
+  AUTO_SUSPEND = 60
+  AUTO_RESUME = TRUE;
+```
+
+### 6. Start Docker Services
+
+```bash
+# Build custom image and start PostgreSQL + Airflow
 docker-compose build --no-cache
 docker-compose up -d
 
-# Verify all containers are running
+# Start Kafka and Zookeeper
+docker-compose up -d zookeeper kafka
+
+# Verify all 5 containers are running
 docker ps
-
-# Access Airflow UI
-# Open http://localhost:8080
-# Username: admin
-# Password: admin123
-
-# Trigger the DAG manually from the UI or let it run on its weekly schedule
 ```
 
-### Services
+### 7. Load Data
 
-| Service    | URL                   | Credentials             |
+```bash
+# Load 2025 F1 data into PostgreSQL
+python extract/load_f1_data.py
+
+# Load same data into Snowflake
+python extract/load_snowflake.py
+```
+
+### 8. Run dbt
+
+```bash
+cd f1_analytics
+
+# Run against PostgreSQL (used by Airflow)
+dbt run --profiles-dir .
+
+# Run against Snowflake (Gold layer for Power BI)
+dbt run --target snowflake --profiles-dir .
+```
+
+### 9. Run Kafka Streaming
+
+Open two terminals:
+
+```bash
+# Terminal 1 — start consumer first
+python kafka/consumer.py
+
+# Terminal 2 — run producer
+python kafka/producer.py
+```
+
+### 10. Access Services
+
+| Service    | URL / Location        | Credentials             |
 | ---------- | --------------------- | ----------------------- |
 | Airflow UI | http://localhost:8080 | admin/admin123          |
 | PostgreSQL | localhost:5433        | f1admin/f1analytics2025 |
+| Snowflake  | app.snowflake.com     | your credentials        |
+| Kafka      | localhost:9092        | no auth required        |
 
 ## Key Engineering Decisions
 
 - **Custom Docker image** — built on `apache/airflow:2.8.1-python3.10` to support fastf1==3.4.4 (requires Python 3.10+)
-- **dbt 1.5.9** — downgraded from 1.7.13 to resolve a KeyError in the dbt-postgres macro manifest inside Docker
+- **dbt dual targets** — `dev` target runs against PostgreSQL for Airflow batch pipeline; `snowflake` target runs against Snowflake for cloud Gold layer
+- **Snowflake SQL compatibility** — replaced PostgreSQL-specific syntax (`DISTINCT ON`, `BOOL_OR`, correlated subqueries with `LIMIT`) with Snowflake equivalents (`QUALIFY ROW_NUMBER()`, `BOOLOR_AGG`)
 - **Docker networking** — all services reference PostgreSQL by service name `postgres:5432` internally; port 5433 is only used for local host access
 - **Leakage-preventing features** — all 14 engineered features use `ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING` to prevent data leakage
 - **SCD Type 2** — snap_driver_teams snapshot captures real mid-season team changes
+- **Kafka deduplication** — each event has a unique `event_id` (UUID) for downstream deduplication
 
 ## Phases
 
 - **Phase 1 (Complete ✓):** Batch ELT pipeline — FastF1 → PostgreSQL → dbt Medallion layers with star schema, 14 engineered features, SCD Type 2, 71 tests passing, GitHub Actions CI
 - **Phase 2 (Complete ✓):** Airflow orchestration with 5-task DAG, Great Expectations data quality monitoring (48/48 checks), fully containerized with custom Docker image
-- **Phase 3 (Planned):** Kafka streaming + Snowflake migration + 4 Power BI dashboards
+- **Phase 3 (Complete ✓):** Kafka streaming pipeline writing lap events to Snowflake, dbt Snowflake target with 13/13 models passing, Power BI dashboards connected to Snowflake Gold layer
