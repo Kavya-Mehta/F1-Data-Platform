@@ -29,6 +29,17 @@ lap_stats as (
         round(avg(lap_time_std)::numeric, 3) as avg_lap_consistency
     from laps
     group by season, round_number
+),
+
+winners as (
+    select
+        season,
+        round_number,
+        driver_abbr as winner,
+        team_name as winning_team
+    from results
+    where finish_position = 1
+    qualify row_number() over (partition by season, round_number order by finish_position) = 1
 )
 
 select
@@ -38,15 +49,8 @@ select
     rc.circuit_name,
     rc.country,
     rc.race_date,
-
-    (select r.driver_abbr from results r
-     where r.round_number = rc.round_number and r.finish_position = 1
-     limit 1) as winner,
-
-    (select r.team_name from results r
-     where r.round_number = rc.round_number and r.finish_position = 1
-     limit 1) as winning_team,
-
+    w.winner,
+    w.winning_team,
     rs.total_starters,
     rs.total_dnfs,
     rs.avg_finish_position,
@@ -58,3 +62,5 @@ left join race_stats rs
     on rc.season = rs.season and rc.round_number = rs.round_number
 left join lap_stats ls
     on rc.season = ls.season and rc.round_number = ls.round_number
+left join winners w
+    on rc.season = w.season and rc.round_number = w.round_number

@@ -30,7 +30,7 @@ team_agg as (
         round_number,
         team_name,
         1 as team_entry,
-        case when bool_or(is_dnf) then 1 else 0 end as team_dnf_this_round
+        case when boolor_agg(is_dnf) then 1 else 0 end as team_dnf_this_round
     from {{ ref('stg_results') }}
     group by season, round_number, team_name
 ),

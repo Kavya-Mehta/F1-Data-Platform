@@ -10,3 +10,14 @@ f1_analytics:
       dbname: "{{ env_var('POSTGRES_DB', 'f1_warehouse') }}"
       schema: analytics
       threads: 4
+
+    snowflake:
+      type: snowflake
+      account: "{{ env_var('SNOWFLAKE_ACCOUNT', 'JOTXHEH-SP06076') }}"
+      user: "{{ env_var('SNOWFLAKE_USER', 'KAVYAPMEHTA') }}"
+      password: "{{ env_var('SNOWFLAKE_PASSWORD', 'Kavyamehta1904') }}"
+      role: ACCOUNTADMIN
+      database: F1_DW
+      warehouse: F1_WH
+      schema: GOLD
+      threads: 4
