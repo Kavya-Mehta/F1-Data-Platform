@@ -6,16 +6,14 @@ features as (
     select * from {{ ref('int_driver_race_features') }}
 ),
 
--- Get the latest team for each driver
 latest_team as (
-    select distinct on (driver_abbr)
+    select
         driver_abbr,
         team_name
     from results
-    order by driver_abbr, round_number desc
+    qualify row_number() over (partition by driver_abbr order by round_number desc) = 1
 ),
 
--- Get season-level stats for each driver
 driver_stats as (
     select
         driver_abbr,
@@ -41,3 +39,4 @@ from (
 left join latest_team lt on r.driver_abbr = lt.driver_abbr
 left join driver_stats ds on r.driver_abbr = ds.driver_abbr
 order by r.driver_abbr
+
